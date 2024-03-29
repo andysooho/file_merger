@@ -32,6 +32,12 @@ frame.pack(fill=tk.BOTH, expand=True)
 tree = ttk.Treeview(frame)
 tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
+# 체크박스 태그 설정
+checked_icon = tk.PhotoImage(file="asset/checked.png")
+unchecked_icon = tk.PhotoImage(file="asset/unchecked.png")
+tree.tag_configure("checked", image=checked_icon)
+tree.tag_configure("unchecked", image=unchecked_icon)
+
 # 스크롤바 생성 및 프레임에 배치
 scrollbar = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=tree.yview)
 scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -47,7 +53,7 @@ extension_entry.insert(0, ".py")  # 기본값으로 .py 설정
 # 제외할 폴더 및 파일 입력 필드
 exclude_entry = tk.Entry(root, width=50)
 exclude_entry.pack()
-exclude_entry.insert(0, ".idea,.venv") # 제외할 폴더 또는 파일 경로를 쉼표로 구분하여 입력
+exclude_entry.insert(0, ".idea,.venv")  # 제외할 폴더 또는 파일 경로를 쉼표로 구분하여 입력
 
 
 def load_tree(path):
@@ -60,21 +66,37 @@ def load_tree(path):
     for root, dirs, files in os.walk(path):
         for file in files:
             if file.endswith(extension) and not any(exclude in os.path.join(root, file) for exclude in exclude_list):
-                tree.insert('', 'end', text=os.path.join(root, file))
+                item = tree.insert('', 'end', text=os.path.join(root, file))
+                tree.item(item, tags=("checked",))
 
 
-# 트리뷰에 체크박스 추가
-def add_checkboxes():
-    pass  # 체크박스 추가 로직 구현
+def toggle_check(event):
+    item = tree.identify_row(event.y)
+    if item:
+        tags = tree.item(item, "tags")
+        if "checked" in tags:
+            tree.item(item, tags=("unchecked",))
+        else:
+            tree.item(item, tags=("checked",))
 
 
 def merge_files():
     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"result_{current_time}.txt"
 
-    selected_items = tree.selection()
+    # result 폴더 경로 설정
+    result_folder = "result"
 
-    with open(filename, "w", encoding="utf-8") as result_file:
+    # result 폴더가 없으면 생성
+    if not os.path.exists(result_folder):
+        os.makedirs(result_folder)
+
+    # result 폴더 경로와 파일명 합치기
+    file_path = os.path.join(result_folder, filename)
+
+    selected_items = tree.tag_has("checked")
+
+    with open(file_path, "w", encoding="utf-8") as result_file:
         for item in selected_items:
             path = tree.item(item, 'text')
             result_file.write(path + "\n")
@@ -83,6 +105,9 @@ def merge_files():
                 content = file.read()
                 result_file.write(content + "\n\n")
 
+
+# 트리뷰에 체크박스 토글 이벤트 바인딩
+tree.bind("<Button-1>", toggle_check)
 
 merge_button = tk.Button(root, text="파일 병합", command=merge_files)
 merge_button.pack()
