@@ -1,115 +1,206 @@
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import filedialog, ttk, messagebox
 import os
 from datetime import datetime
-
-# 기본 윈도우
-root = tk.Tk()
-root.title("파일 병합기")
-
-# 경로 입력 필드
-path_entry = tk.Entry(root, width=50)
-path_entry.pack()
+import chardet
+import threading
+import queue
+import fnmatch
 
 
-# 경로 선택 버튼
-def browse_path():
-    path = filedialog.askdirectory()
-    path_entry.delete(0, tk.END)
-    path_entry.insert(0, path)
-    print(path)
-    load_tree(path)
+class FileMerger:
+    def __init__(self, master):
+        self.master = master
+        master.title("고오급 파일 병합기")
+        master.geometry("800x600")
 
+        self.create_widgets()
+        self.file_queue = queue.Queue()
+        self.stop_thread = threading.Event()
 
-browse_button = tk.Button(root, text="경로 선택", command=browse_path)
-browse_button.pack()
+    def create_widgets(self):
+        # 경로 입력 프레임
+        path_frame = ttk.Frame(self.master, padding="10")
+        path_frame.pack(fill=tk.X)
 
-# 파일 리스트를 담을 프레임 생성
-frame = tk.Frame(root)
-frame.pack(fill=tk.BOTH, expand=True)
+        self.path_entry = ttk.Entry(path_frame, width=50)
+        self.path_entry.pack(side=tk.LEFT, expand=True, fill=tk.X)
 
-# 트리뷰 생성 및 프레임에 배치
-tree = ttk.Treeview(frame)
-tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        browse_button = ttk.Button(path_frame, text="경로 선택", command=self.browse_path)
+        browse_button.pack(side=tk.RIGHT)
 
-# 체크박스 태그 설정
-checked_icon = tk.PhotoImage(file="asset/checked.png")
-unchecked_icon = tk.PhotoImage(file="asset/unchecked.png")
-tree.tag_configure("checked", image=checked_icon)
-tree.tag_configure("unchecked", image=unchecked_icon)
+        # 파일 리스트 프레임
+        list_frame = ttk.Frame(self.master, padding="10")
+        list_frame.pack(fill=tk.BOTH, expand=True)
 
-# 스크롤바 생성 및 프레임에 배치
-scrollbar = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=tree.yview)
-scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        # 체크박스 열 추가
+        self.tree = ttk.Treeview(list_frame, columns=("Checked", "Size", "Date Modified"), selectmode="extended")
+        self.tree.heading("#0", text="파일명")
+        self.tree.heading("Checked", text="선택")
+        self.tree.heading("Size", text="크기")
+        self.tree.heading("Date Modified", text="수정일")
+        self.tree.column("Checked", width=50, anchor="center")
+        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-# 트리뷰와 스크롤바 연동
-tree.configure(yscrollcommand=scrollbar.set)
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.tree.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree.configure(yscrollcommand=scrollbar.set)
 
-# 확장자 필터링 입력 필드
-extension_entry = tk.Entry(root, width=20)
-extension_entry.pack()
-extension_entry.insert(0, ".py")  # 기본값으로 .py 설정
+        # 체크박스 클릭 이벤트 바인딩
+        self.tree.bind("<Button-1>", self.toggle_check)
 
-# 제외할 폴더 및 파일 입력 필드
-exclude_entry = tk.Entry(root, width=50)
-exclude_entry.pack()
-exclude_entry.insert(0, ".idea,.venv")  # 제외할 폴더 또는 파일 경로를 쉼표로 구분하여 입력
+        # 필터 프레임
+        filter_frame = ttk.Frame(self.master, padding="10")
+        filter_frame.pack(fill=tk.X)
 
+        ttk.Label(filter_frame, text="확장자 필터:").pack(side=tk.LEFT)
+        self.extension_entry = ttk.Entry(filter_frame, width=10)
+        self.extension_entry.pack(side=tk.LEFT)
+        self.extension_entry.insert(0, "*")
 
-def load_tree(path):
-    for i in tree.get_children():
-        tree.delete(i)
+        ttk.Label(filter_frame, text="제외 항목:").pack(side=tk.LEFT)
+        self.exclude_entry = ttk.Entry(filter_frame, width=30)
+        self.exclude_entry.pack(side=tk.LEFT)
+        self.exclude_entry.insert(0,
+                                  "*.log,.idea,.github,.git,.DS_Store,*.json,*.lock,*.md,*.yml,*.yaml,*.erb,*.scss,*.css,*.svg,*.png,*.gif,*.jpg,*.ico,*.woff,*.woff2,*.mp3")
 
-    extension = extension_entry.get()
-    exclude_list = [item.strip() for item in exclude_entry.get().split(",")]
+        refresh_button = ttk.Button(filter_frame, text="새로고침", command=self.refresh_tree)
+        refresh_button.pack(side=tk.RIGHT)
 
-    for root, dirs, files in os.walk(path):
-        for file in files:
-            if file.endswith(extension) and not any(exclude in os.path.join(root, file) for exclude in exclude_list):
-                item = tree.insert('', 'end', text=os.path.join(root, file))
-                tree.item(item, tags=("checked",))
+        # 선택 도구 프레임
+        select_frame = ttk.Frame(self.master, padding="10")
+        select_frame.pack(fill=tk.X)
 
+        select_all_button = ttk.Button(select_frame, text="모두 선택", command=self.select_all)
+        select_all_button.pack(side=tk.LEFT)
 
-def toggle_check(event):
-    item = tree.identify_row(event.y)
-    if item:
-        tags = tree.item(item, "tags")
-        if "checked" in tags:
-            tree.item(item, tags=("unchecked",))
-        else:
-            tree.item(item, tags=("checked",))
+        deselect_all_button = ttk.Button(select_frame, text="모두 선택 해제", command=self.deselect_all)
+        deselect_all_button.pack(side=tk.LEFT)
 
+        # 진행 상황 표시 바
+        self.progress_var = tk.DoubleVar()
+        self.progress_bar = ttk.Progressbar(self.master, variable=self.progress_var, maximum=100)
+        self.progress_bar.pack(fill=tk.X, padx=10, pady=5)
 
-def merge_files():
-    current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"result_{current_time}.txt"
+        # 상태 레이블
+        self.status_label = ttk.Label(self.master, text="준비")
+        self.status_label.pack(pady=5)
 
-    # result 폴더 경로 설정
-    result_folder = "result"
+        # 병합 버튼
+        merge_button = ttk.Button(self.master, text="파일 병합", command=self.start_merge)
+        merge_button.pack(pady=10)
 
-    # result 폴더가 없으면 생성
-    if not os.path.exists(result_folder):
-        os.makedirs(result_folder)
+        # 키보드 단축키 바인딩
+        self.master.bind("<Control-a>", self.select_all)
+        self.master.bind("<Control-A>", self.select_all)  # Shift+Ctrl+A
 
-    # result 폴더 경로와 파일명 합치기
-    file_path = os.path.join(result_folder, filename)
+    def browse_path(self):
+        path = filedialog.askdirectory()
+        if path:
+            self.path_entry.delete(0, tk.END)
+            self.path_entry.insert(0, path)
+            self.refresh_tree()
 
-    selected_items = tree.tag_has("checked")
+    def should_exclude(self, path, exclude_patterns):
+        name = os.path.basename(path)
+        return any(fnmatch.fnmatch(name, pattern) for pattern in exclude_patterns)
 
-    with open(file_path, "w", encoding="utf-8") as result_file:
+    def refresh_tree(self):
+        for i in self.tree.get_children():
+            self.tree.delete(i)
+
+        path = self.path_entry.get()
+        include_pattern = self.extension_entry.get()
+        exclude_patterns = [item.strip() for item in self.exclude_entry.get().split(",")]
+
+        for root, dirs, files in os.walk(path):
+            dirs[:] = [d for d in dirs if not self.should_exclude(d, exclude_patterns)]
+
+            for file in files:
+                full_path = os.path.join(root, file)
+                if fnmatch.fnmatch(file, include_pattern) and not self.should_exclude(full_path, exclude_patterns):
+                    size = os.path.getsize(full_path)
+                    modified = os.path.getmtime(full_path)
+                    modified_date = datetime.fromtimestamp(modified).strftime('%Y-%m-%d %H:%M:%S')
+                    self.tree.insert('', 'end', text=full_path, values=("✓", f"{size / 1024:.2f} KB", modified_date),
+                                     tags=('checked',))
+
+    def toggle_check(self, event):
+        region = self.tree.identify("region", event.x, event.y)
+        if region == "cell":
+            column = self.tree.identify_column(event.x)
+            if column == "#1":  # 체크박스 열
+                item = self.tree.identify_row(event.y)
+                tags = self.tree.item(item, "tags")
+                if "checked" in tags:
+                    self.tree.item(item, tags=("unchecked",), values=("", *self.tree.item(item, "values")[1:]))
+                else:
+                    self.tree.item(item, tags=("checked",), values=("✓", *self.tree.item(item, "values")[1:]))
+
+    def select_all(self, event=None):
+        for item in self.tree.get_children():
+            self.tree.item(item, tags=("checked",), values=("✓", *self.tree.item(item, "values")[1:]))
+
+    def deselect_all(self):
+        for item in self.tree.get_children():
+            self.tree.item(item, tags=("unchecked",), values=("", *self.tree.item(item, "values")[1:]))
+
+    def start_merge(self):
+        selected_items = [item for item in self.tree.get_children() if "checked" in self.tree.item(item, "tags")]
+        if not selected_items:
+            messagebox.showwarning("경고", "선택된 파일이 없습니다.")
+            return
+
+        self.stop_thread.clear()
+        self.progress_var.set(0)
+        self.status_label.config(text="병합 중...")
+
+        current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"result_{current_time}.txt"
+        result_folder = "result"
+        if not os.path.exists(result_folder):
+            os.makedirs(result_folder)
+        file_path = os.path.join(result_folder, filename)
+
         for item in selected_items:
-            path = tree.item(item, 'text')
-            result_file.write(path + "\n")
+            self.file_queue.put(self.tree.item(item, 'text'))
 
-            with open(path, "r", encoding="utf-8") as file:
-                content = file.read()
-                result_file.write(content + "\n\n")
+        threading.Thread(target=self.merge_files, args=(file_path, len(selected_items))).start()
+
+    def merge_files(self, file_path, total_files):
+        with open(file_path, "wb") as result_file:
+            processed_files = 0
+            while not self.file_queue.empty() and not self.stop_thread.is_set():
+                path = self.file_queue.get()
+                result_file.write(f"\n--- File: {path} ---\n".encode('utf-8'))
+
+                try:
+                    with open(path, "rb") as file:
+                        raw_content = file.read()
+                        encoding = chardet.detect(raw_content)['encoding']
+                        if encoding:
+                            content = raw_content.decode(encoding)
+                            result_file.write(content.encode('utf-8'))
+                        else:
+                            result_file.write(raw_content)
+                except Exception as e:
+                    error_message = f"Error reading file {path}: {str(e)}\n"
+                    result_file.write(error_message.encode('utf-8'))
+
+                processed_files += 1
+                progress = (processed_files / total_files) * 100
+                self.progress_var.set(progress)
+                self.master.update_idletasks()
+
+        self.master.after(0, self.finish_merge, file_path)
+
+    def finish_merge(self, file_path):
+        self.progress_var.set(100)
+        self.status_label.config(text="병합 완료")
+        messagebox.showinfo("성공", f"파일이 성공적으로 병합되었습니다.\n결과 파일: {file_path}")
 
 
-# 트리뷰에 체크박스 토글 이벤트 바인딩
-tree.bind("<Button-1>", toggle_check)
-
-merge_button = tk.Button(root, text="파일 병합", command=merge_files)
-merge_button.pack()
-
-root.mainloop()
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = FileMerger(root)
+    root.mainloop()
