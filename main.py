@@ -62,7 +62,8 @@ class FileMerger:
         self.exclude_entry = ttk.Entry(filter_frame, width=30)
         self.exclude_entry.pack(side=tk.LEFT)
         self.exclude_entry.insert(0,
-                                  "*.log,.idea,.github,.git,.DS_Store,*.json,*.lock,*.md,*.yml,*.yaml,*.erb,*.scss,*.css,*.svg,*.png,*.gif,*.jpg,*.ico,*.woff,*.woff2,*.mp3")
+                                  "*.pyc,*.log,.idea,.github,.git,.DS_Store,*.json,*.lock,*.md,*.yml,*.yaml,*.erb,"
+                                  "*.scss,*.css,*.svg,*.png,*.gif,*.jpg,*.ico,*.woff,*.woff2,*.mp3,*.xlsx,.venv,.gitignore,.env,*.db")
 
         refresh_button = ttk.Button(filter_frame, text="새로고침", command=self.refresh_tree)
         refresh_button.pack(side=tk.RIGHT)
@@ -177,12 +178,21 @@ class FileMerger:
                 try:
                     with open(path, "rb") as file:
                         raw_content = file.read()
-                        encoding = chardet.detect(raw_content)['encoding']
-                        if encoding:
-                            content = raw_content.decode(encoding)
-                            result_file.write(content.encode('utf-8'))
-                        else:
-                            result_file.write(raw_content)
+                        detection = chardet.detect(raw_content)
+                        encoding = detection['encoding']
+
+                        # 인코딩 감지 결과가 없는 경우 또는 디코딩 오류 발생 시 UTF-8로 강제
+                        if encoding is None:
+                            encoding = 'utf-8'
+
+                        try:
+                            content = raw_content.decode(encoding, errors='replace')
+                        except UnicodeDecodeError:
+                            # chardet으로 잡은 인코딩이 문제될 경우 UTF-8로 다시 시도
+                            content = raw_content.decode('utf-8', errors='replace')
+
+                        result_file.write(content.encode('utf-8'))
+
                 except Exception as e:
                     error_message = f"Error reading file {path}: {str(e)}\n"
                     result_file.write(error_message.encode('utf-8'))
