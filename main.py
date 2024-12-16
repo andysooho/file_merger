@@ -178,19 +178,7 @@ class FileMerger:
                 try:
                     with open(path, "rb") as file:
                         raw_content = file.read()
-                        detection = chardet.detect(raw_content)
-                        encoding = detection['encoding']
-
-                        # 인코딩 감지 결과가 없는 경우 또는 디코딩 오류 발생 시 UTF-8로 강제
-                        if encoding is None:
-                            encoding = 'utf-8'
-
-                        try:
-                            content = raw_content.decode(encoding, errors='replace')
-                        except UnicodeDecodeError:
-                            # chardet으로 잡은 인코딩이 문제될 경우 UTF-8로 다시 시도
-                            content = raw_content.decode('utf-8', errors='replace')
-
+                        content = raw_content.decode("utf-8", errors="ignore")
                         result_file.write(content.encode('utf-8'))
 
                 except Exception as e:
