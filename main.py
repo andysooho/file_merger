@@ -2,7 +2,6 @@ import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
 import os
 from datetime import datetime
-import chardet
 import threading
 import queue
 import fnmatch
@@ -12,7 +11,7 @@ class FileMerger:
     def __init__(self, master):
         self.master = master
         master.title("고오급 파일 병합기")
-        master.geometry("800x600")
+        master.geometry("1000x700")
 
         self.create_widgets()
         self.file_queue = queue.Queue()
@@ -35,11 +34,15 @@ class FileMerger:
 
         # 체크박스 열 추가
         self.tree = ttk.Treeview(list_frame, columns=("Checked", "Size", "Date Modified"), selectmode="extended")
-        self.tree.heading("#0", text="파일명")
+        self.tree.heading("#0", text="파일 경로")
+        self.tree.column("#0", minwidth=400, width=400, stretch=True)  # 파일 경로 열 넓게
         self.tree.heading("Checked", text="선택")
+        self.tree.column("Checked", width=50, anchor="center", stretch=False)
         self.tree.heading("Size", text="크기")
+        self.tree.column("Size", width=80, anchor="center", stretch=False)
         self.tree.heading("Date Modified", text="수정일")
-        self.tree.column("Checked", width=50, anchor="center")
+        self.tree.column("Date Modified", width=120, anchor="center", stretch=False)
+
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.tree.yview)
@@ -107,6 +110,7 @@ class FileMerger:
         return any(fnmatch.fnmatch(name, pattern) for pattern in exclude_patterns)
 
     def refresh_tree(self):
+        # Treeview 초기화
         for i in self.tree.get_children():
             self.tree.delete(i)
 
@@ -114,23 +118,32 @@ class FileMerger:
         include_pattern = self.extension_entry.get()
         exclude_patterns = [item.strip() for item in self.exclude_entry.get().split(",")]
 
+        if not path or not os.path.exists(path):
+            return
+
         for root, dirs, files in os.walk(path):
+            # 제외 폴더 제거
             dirs[:] = [d for d in dirs if not self.should_exclude(d, exclude_patterns)]
 
             for file in files:
                 full_path = os.path.join(root, file)
-                if fnmatch.fnmatch(file, include_pattern) and not self.should_exclude(full_path, exclude_patterns):
+                # 포함 패턴 & 제외 패턴 검사
+                if (fnmatch.fnmatch(file, include_pattern)
+                        and not self.should_exclude(full_path, exclude_patterns)):
                     size = os.path.getsize(full_path)
                     modified = os.path.getmtime(full_path)
                     modified_date = datetime.fromtimestamp(modified).strftime('%Y-%m-%d %H:%M:%S')
-                    self.tree.insert('', 'end', text=full_path, values=("✓", f"{size / 1024:.2f} KB", modified_date),
+                    # 체크박스(✓) 표시를 기본값으로
+                    self.tree.insert('', 'end',
+                                     text=full_path,
+                                     values=("✓", f"{size / 1024:.2f} KB", modified_date),
                                      tags=('checked',))
 
     def toggle_check(self, event):
         region = self.tree.identify("region", event.x, event.y)
         if region == "cell":
             column = self.tree.identify_column(event.x)
-            if column == "#1":  # 체크박스 열
+            if column == "#1":  # 체크박스 열(첫 번째 데이터 열)
                 item = self.tree.identify_row(event.y)
                 tags = self.tree.item(item, "tags")
                 if "checked" in tags:
@@ -163,24 +176,27 @@ class FileMerger:
             os.makedirs(result_folder)
         file_path = os.path.join(result_folder, filename)
 
+        # 작업 큐에 선택된 파일들 삽입
         for item in selected_items:
             self.file_queue.put(self.tree.item(item, 'text'))
 
-        threading.Thread(target=self.merge_files, args=(file_path, len(selected_items))).start()
+        # 병합 작업을 별도 스레드에서 실행
+        threading.Thread(target=self.merge_files, args=(file_path, len(selected_items)), daemon=True).start()
 
     def merge_files(self, file_path, total_files):
         with open(file_path, "wb") as result_file:
             processed_files = 0
             while not self.file_queue.empty() and not self.stop_thread.is_set():
                 path = self.file_queue.get()
+                # 각 파일 시작 표시
                 result_file.write(f"\n--- File: {path} ---\n".encode('utf-8'))
 
                 try:
                     with open(path, "rb") as file:
                         raw_content = file.read()
+                        # 파일 인코딩을 모를 경우, 안전하게 utf-8로 디코딩(에러 무시)
                         content = raw_content.decode("utf-8", errors="ignore")
                         result_file.write(content.encode('utf-8'))
-
                 except Exception as e:
                     error_message = f"Error reading file {path}: {str(e)}\n"
                     result_file.write(error_message.encode('utf-8'))
