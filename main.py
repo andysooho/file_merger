@@ -62,7 +62,7 @@ class FileMerger:
         self.exclude_entry = ttk.Entry(filter_frame, width=30)
         self.exclude_entry.pack(side=tk.LEFT)
         self.exclude_entry.insert(0,
-                                  "*.pyc,*.log,.idea,.github,.git,.DS_Store,*.json,*.lock,*.md,*.yml,*.yaml,*.erb,"
+                                  ".env,logs,*.csv,*.xlsx,*.pyc,*.pyc,*.log,.idea,.github,.git,.DS_Store,*.json,*.lock,*.md,*.yml,*.yaml,*.erb,"
                                   "*.scss,*.css,*.svg,*.png,*.gif,*.jpg,*.ico,*.woff,*.woff2,*.mp3,*.xlsx,.venv,.gitignore,.env,*.db")
 
         refresh_button = ttk.Button(filter_frame, text="새로고침", command=self.refresh_tree)
