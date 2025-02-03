@@ -74,7 +74,7 @@ class FileMerger:
         self.exclude_entry = ttk.Entry(filter_frame, width=30)
         self.exclude_entry.pack(side=tk.LEFT, padx=5)
         self.exclude_entry.insert(0,
-                                  ".ruff_cache,*.txt,*.toml,.cursor,.cursorrules*,.env*,logs,*.csv,*.xlsx,*.pyc,*.log,.idea,.github,.git,.DS_Store,*.json,*.lock,*.md,*.yml,*.yaml,"
+                                  ".pytest_cache,.ruff_cache,*.txt,*.toml,.cursor,.cursorrules*,.env*,logs,*.csv,*.xlsx,*.pyc,*.log,.idea,.github,.git,.DS_Store,*.json,*.lock,*.md,*.yml,*.yaml,"
                                   "*.erb,*.scss,*.css,*.svg,*.png,*.gif,*.jpg,*.ico,*.woff,*.woff2,*.mp3,*.xlsx,.venv,.gitignore,"
                                   ".env,*.db")
 
